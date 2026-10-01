@@ -177,7 +177,7 @@ def remove_document(
     "/{document_id}/embed",
     response_model=EmbedChunksResponse,
     summary="Compute and persist embeddings for document chunks",
-    description="Generates 384-dimensional SentenceTransformer embeddings for all chunks of the specified document.",
+    description="Generates 384-dimensional ONNX embeddings for all chunks of the specified document.",
 )
 def embed_chunks(
     document_id: int,

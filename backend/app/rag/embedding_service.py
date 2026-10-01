@@ -6,6 +6,7 @@ using all-MiniLM-L6-v2 with strict dimension validation and database persistence
 
 import logging
 from typing import Any, Dict, List, Optional
+import numpy as np
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
@@ -26,6 +27,17 @@ from backend.app.rag.vector_utils import (
 logger = logging.getLogger("sahayakai.rag.embedding_service")
 
 
+def _normalize_embeddings(vectors: Any, enabled: bool) -> np.ndarray:
+    values = np.asarray(vectors, dtype=np.float32)
+    if values.ndim == 1:
+        values = values.reshape(1, -1)
+    if not enabled:
+        return values
+
+    norms = np.linalg.norm(values, axis=1, keepdims=True)
+    return np.divide(values, norms, out=np.zeros_like(values), where=norms > 0)
+
+
 def get_embedding_dimension() -> int:
     """Return configured embedding dimension."""
     return get_settings().EMBEDDING_DIMENSION
@@ -44,13 +56,8 @@ def embed_text(text: str) -> List[float]:
     model = model_manager.load_model()
 
     try:
-        vector = model.encode(
-            text.strip(),
-            batch_size=1,
-            show_progress_bar=False,
-            normalize_embeddings=settings.EMBEDDING_NORMALIZE,
-            convert_to_numpy=True,
-        )
+        raw_vectors = list(model.embed([text.strip()], batch_size=1))
+        vector = _normalize_embeddings(raw_vectors, settings.EMBEDDING_NORMALIZE)[0]
         return serialize_vector(vector, expected_dim=settings.EMBEDDING_DIMENSION)
     except Exception as exc:
         if isinstance(exc, AppException):
@@ -80,16 +87,11 @@ def embed_batch(texts: List[str], batch_size: Optional[int] = None) -> List[List
         clean_texts.append(t.strip())
 
     try:
-        raw_vectors = model.encode(
-            clean_texts,
-            batch_size=size,
-            show_progress_bar=False,
-            normalize_embeddings=settings.EMBEDDING_NORMALIZE,
-            convert_to_numpy=True,
-        )
+        raw_vectors = list(model.embed(clean_texts, batch_size=size))
+        normalized_vectors = _normalize_embeddings(raw_vectors, settings.EMBEDDING_NORMALIZE)
 
         embeddings: List[List[float]] = []
-        for vec in raw_vectors:
+        for vec in normalized_vectors:
             embeddings.append(serialize_vector(vec, expected_dim=settings.EMBEDDING_DIMENSION))
 
         return embeddings

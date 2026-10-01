@@ -385,7 +385,7 @@ def test_embed_document_chunks_transaction_safety(db_session: Session):
 
 def test_model_loading_failure_handled():
     """Verify model loading errors are mapped to EmbeddingModelLoadError."""
-    with patch("backend.app.rag.model_manager.SentenceTransformer", side_effect=RuntimeError("Download failed")):
+    with patch("fastembed.TextEmbedding", side_effect=RuntimeError("Download failed")):
         manager = EmbeddingModelManager()
         with pytest.raises(EmbeddingModelLoadError) as exc:
             manager.load_model(force_reload=True)

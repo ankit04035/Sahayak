@@ -4,10 +4,14 @@ Handles lazy loading, in-process caching, device configuration,
 dimension verification, and metadata reporting for embedding models.
 """
 
+from __future__ import annotations
+
 import logging
 import threading
-from typing import Any, Dict, Optional
-from sentence_transformers import SentenceTransformer
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:
+    from fastembed import TextEmbedding
 
 from backend.app.config import get_settings
 from backend.app.rag.exceptions import EmbeddingModelLoadError
@@ -16,13 +20,13 @@ logger = logging.getLogger("sahayakai.rag.model_manager")
 
 
 class EmbeddingModelManager:
-    """Thread-safe singleton managing the SentenceTransformer model lifecycle."""
+    """Thread-safe singleton managing the FastEmbed model lifecycle."""
 
-    _instance: Optional["EmbeddingModelManager"] = None
+    _instance: Optional[EmbeddingModelManager] = None
     _lock: threading.Lock = threading.Lock()
 
     def __init__(self) -> None:
-        self._model: Optional[SentenceTransformer] = None
+        self._model: Optional[TextEmbedding] = None
         self._load_lock: threading.Lock = threading.Lock()
         self._model_name: Optional[str] = None
         self._dimension: Optional[int] = None
@@ -36,9 +40,9 @@ class EmbeddingModelManager:
                     cls._instance = cls()
         return cls._instance
 
-    def load_model(self, force_reload: bool = False) -> SentenceTransformer:
+    def load_model(self, force_reload: bool = False) -> TextEmbedding:
         """
-        Lazily load and cache the SentenceTransformer model.
+        Lazily initialize and cache the ONNX embedding model.
         Verifies actual embedding dimension against configured expectations.
         """
         if self._model is not None and not force_reload:
@@ -50,22 +54,29 @@ class EmbeddingModelManager:
 
             settings = get_settings()
             model_name = settings.EMBEDDING_MODEL
-            device = settings.EMBEDDING_DEVICE.lower().strip()
+            if model_name == "all-MiniLM-L6-v2":
+                model_name = "sentence-transformers/all-MiniLM-L6-v2"
             cache_dir = settings.EMBEDDING_CACHE_DIR
 
-            logger.info("Loading SentenceTransformer model '%s' on device '%s'...", model_name, device)
+            logger.info("Initializing FastEmbed model '%s'...", model_name)
 
             try:
-                model = SentenceTransformer(
-                    model_name_or_path=model_name,
-                    device=device,
-                    cache_folder=cache_dir,
+                from fastembed import TextEmbedding
+
+                model = TextEmbedding(
+                    model_name=model_name,
+                    cache_dir=cache_dir,
+                    threads=1,
+                    providers=["CPUExecutionProvider"],
+                    lazy_load=True,
                 )
 
-                if hasattr(model, "get_embedding_dimension"):
-                    actual_dim = model.get_embedding_dimension()
-                else:
-                    actual_dim = model.get_sentence_embedding_dimension()
+                model_info = next(
+                    item
+                    for item in TextEmbedding.list_supported_models()
+                    if item["model"] == model_name
+                )
+                actual_dim = model_info["dim"]
                 if actual_dim != settings.EMBEDDING_DIMENSION:
                     raise EmbeddingModelLoadError(
                         message=f"Model '{model_name}' dimension mismatch: expected {settings.EMBEDDING_DIMENSION}, got {actual_dim}.",
@@ -73,11 +84,11 @@ class EmbeddingModelManager:
                     )
 
                 self._model = model
-                self._model_name = model_name
+                self._model_name = settings.EMBEDDING_MODEL
                 self._dimension = actual_dim
-                self._device = device
+                self._device = "cpu"
 
-                logger.info("SentenceTransformer model '%s' loaded successfully (dimension: %d).", model_name, actual_dim)
+                logger.info("FastEmbed model '%s' initialized (dimension: %d).", model_name, actual_dim)
                 return self._model
 
             except Exception as exc:

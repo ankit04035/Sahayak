@@ -1,5 +1,5 @@
 """
-Pre-download and verify the SentenceTransformer embedding model.
+Pre-download and verify the FastEmbed ONNX embedding model.
 Validates model initialization, embedding generation, and dimension correctness.
 Exits 0 on success, non-zero on failure.
 """
@@ -42,11 +42,13 @@ def main() -> int:
         load_duration = time.time() - start_time
         print(f"Model loaded successfully in {load_duration:.2f} seconds.")
 
-        # Verify dimension
-        if hasattr(model, "get_embedding_dimension"):
-            dim = model.get_embedding_dimension()
-        else:
-            dim = model.get_sentence_embedding_dimension()
+        # Run sample inference to download the model and verify its output.
+        sample_text = "SahayakAI is an offline-capable academic mentorship assistant."
+        print(f"Generating test embedding for: '{sample_text}'")
+        emb_start = time.time()
+        embedding = embed_text(sample_text)
+        emb_duration = time.time() - emb_start
+        dim = len(embedding)
         print(f"Verified Model Dimension: {dim}")
         if dim != settings.EMBEDDING_DIMENSION:
             print(
@@ -54,13 +56,6 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-
-        # Run sample inference
-        sample_text = "SahayakAI is an offline-capable academic mentorship assistant."
-        print(f"Generating test embedding for: '{sample_text}'")
-        emb_start = time.time()
-        embedding = embed_text(sample_text)
-        emb_duration = time.time() - emb_start
 
         print(f"Embedding generated in {emb_duration * 1000:.1f} ms.")
         print(f"Generated Vector Length : {len(embedding)}")
